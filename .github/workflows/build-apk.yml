@@ -1,5 +1,8 @@
 name: Build Android APK
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -69,3 +72,18 @@ jobs:
           name: slopromet-gps-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+      # Arena cannot download GitHub's Azure-hosted Actions artifacts directly.
+      # For a manually requested test build, publish the small debug APK on the
+      # current branch so it can be delivered to the user from the workspace.
+      - name: Publish test APK on branch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p releases
+          cp android/app/build/outputs/apk/debug/app-debug.apk releases/SloPromet-GPS-debug.apk
+          sha256sum releases/SloPromet-GPS-debug.apk > releases/SloPromet-GPS-debug.apk.sha256
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases/SloPromet-GPS-debug.apk releases/SloPromet-GPS-debug.apk.sha256
+          git commit -m "Build Android test APK [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
