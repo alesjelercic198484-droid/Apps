@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import type { Camera, Incident, RoadSegment, Stats } from '../lib/types';
 import { apiUrl } from '../lib/apiBase';
+import { IS_STANDALONE, LOCAL_DATA_EVENT } from '../lib/runtime';
 
 interface LiveHandlers {
   onCamera?: (camera: Camera) => void;
@@ -19,6 +22,43 @@ export function useLiveStream(handlers: LiveHandlers) {
   handlersRef.current = handlers;
 
   useEffect(() => {
+    if (IS_STANDALONE) {
+      const onLocalData = (event: Event) => {
+        const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+        switch (detail.type) {
+          case 'camera:created':
+          case 'camera:updated':
+            handlersRef.current.onCamera?.(detail.camera as Camera);
+            break;
+          case 'camera:deleted':
+            handlersRef.current.onCameraDeleted?.(Number(detail.id));
+            break;
+          case 'incident:created':
+          case 'incident:updated':
+            handlersRef.current.onIncident?.(detail.incident as Incident);
+            break;
+          case 'incident:deleted':
+            handlersRef.current.onIncidentDeleted?.(Number(detail.id));
+            break;
+          case 'segment:updated':
+            handlersRef.current.onSegment?.(detail.segment as RoadSegment);
+            break;
+          case 'segment:deleted':
+            handlersRef.current.onSegmentDeleted?.(Number(detail.id));
+            break;
+          case 'stats':
+            handlersRef.current.onStats?.(detail.stats as Stats);
+            break;
+        }
+      };
+      setConnected(true);
+      handlersRef.current.onConnected?.();
+      window.addEventListener(LOCAL_DATA_EVENT, onLocalData);
+      return () => {
+        window.removeEventListener(LOCAL_DATA_EVENT, onLocalData);
+      };
+    }
+
     let source: EventSource | null = null;
     let retryTimer: number | null = null;
     let closed = false;
@@ -124,92 +164,171 @@ export function useGps() {
     simulated: false,
   });
 
-  const watchIdRef = useRef<number | null>(null);
+  const webWatchIdRef = useRef<number | null>(null);
+  const nativeWatchIdRef = useRef<string | null>(null);
   const simTimerRef = useRef<number | null>(null);
+  const generationRef = useRef(0);
   const simStateRef = useRef({ lat: 46.0569, lng: 14.5058, speed: 0, heading: 90 });
 
-  const stop = () => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+  const clearActiveWatches = () => {
+    generationRef.current += 1;
+    if (webWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(webWatchIdRef.current);
+      webWatchIdRef.current = null;
+    }
+    if (nativeWatchIdRef.current !== null) {
+      void Geolocation.clearWatch({ id: nativeWatchIdRef.current });
+      nativeWatchIdRef.current = null;
     }
     if (simTimerRef.current !== null) {
       window.clearInterval(simTimerRef.current);
       simTimerRef.current = null;
     }
-    setGps((g) => ({ ...g, status: 'off', simulated: false }));
+  };
+
+  const stop = () => {
+    clearActiveWatches();
+    setGps((state) => ({ ...state, status: 'off', error: null, simulated: false }));
+  };
+
+  const updatePosition = (coords: {
+    latitude: number;
+    longitude: number;
+    speed: number | null;
+    heading: number | null;
+    accuracy: number;
+    altitude: number | null;
+  }) => {
+    setGps({
+      lat: coords.latitude,
+      lng: coords.longitude,
+      speedKmh: coords.speed != null && coords.speed >= 0 ? Math.round(coords.speed * 3.6) : null,
+      heading: coords.heading != null && coords.heading >= 0 ? Math.round(coords.heading) : null,
+      accuracy: Math.round(coords.accuracy),
+      altitude: coords.altitude != null ? Math.round(coords.altitude) : null,
+      status: 'active',
+      error: null,
+      simulated: false,
+    });
   };
 
   const startSimulated = () => {
-    stop();
+    clearActiveWatches();
     simStateRef.current = { lat: 46.0569, lng: 14.5058, speed: 0, heading: 90 };
-    setGps((g) => ({ ...g, status: 'simulated', simulated: true, error: null }));
+    setGps((state) => ({ ...state, status: 'simulated', simulated: true, error: null }));
     simTimerRef.current = window.setInterval(() => {
-      const s = simStateRef.current;
-      // Simple drive simulation: accelerate to ~110 km/h, head north-east along A1 corridor
+      const state = simStateRef.current;
+      // Demo drive: accelerate to motorway speed and move north-east from Ljubljana.
       const target = 110;
-      s.speed += (target - s.speed) * 0.08 + (Math.random() - 0.5) * 6;
-      s.speed = Math.max(0, Math.min(135, s.speed));
-      s.heading = 55 + Math.sin(Date.now() / 9000) * 35;
-      const rad = (s.heading * Math.PI) / 180;
-      const distKm = s.speed / 3600;
-      const dLat = (distKm * Math.cos(rad)) / 111;
-      const dLng = (distKm * Math.sin(rad)) / (111 * Math.cos((s.lat * Math.PI) / 180));
-      s.lat += dLat;
-      s.lng += dLng;
-      // Keep inside Slovenia bounds
-      if (s.lat > 46.7) s.lat = 46.05;
-      if (s.lng > 15.7) s.lng = 14.5;
-      setGps((g) => ({
-        ...g,
-        lat: s.lat,
-        lng: s.lng,
-        speedKmh: Math.round(s.speed),
-        heading: Math.round(s.heading),
+      state.speed += (target - state.speed) * 0.08 + (Math.random() - 0.5) * 6;
+      state.speed = Math.max(0, Math.min(135, state.speed));
+      state.heading = 55 + Math.sin(Date.now() / 9000) * 35;
+      const radians = (state.heading * Math.PI) / 180;
+      const distanceKm = state.speed / 3600;
+      state.lat += (distanceKm * Math.cos(radians)) / 111;
+      state.lng += (distanceKm * Math.sin(radians)) / (111 * Math.cos((state.lat * Math.PI) / 180));
+      if (state.lat > 46.7) state.lat = 46.05;
+      if (state.lng > 15.7) state.lng = 14.5;
+      setGps((current) => ({
+        ...current,
+        lat: state.lat,
+        lng: state.lng,
+        speedKmh: Math.round(state.speed),
+        heading: Math.round(state.heading),
         accuracy: 8,
         altitude: 300 + Math.round(Math.sin(Date.now() / 20000) * 40),
         status: 'simulated',
+        error: null,
         simulated: true,
       }));
     }, 1000);
   };
 
+  const startNative = async (generation: number) => {
+    try {
+      let permission = await Geolocation.checkPermissions();
+      if (permission.location !== 'granted') {
+        permission = await Geolocation.requestPermissions({ permissions: ['location'] });
+      }
+      if (permission.location !== 'granted') {
+        setGps((state) => ({
+          ...state,
+          status: 'denied',
+          error: 'Dostop do lokacije je zavrnjen. V nastavitvah Androida omogočite lokacijo ali uporabite demo vožnjo.',
+        }));
+        return;
+      }
+
+      const id = await Geolocation.watchPosition(
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000, minimumUpdateInterval: 1000 },
+        (position, error) => {
+          if (generationRef.current !== generation) return;
+          if (error || !position) {
+            setGps((state) => ({
+              ...state,
+              status: 'error',
+              error: error?.message || 'GPS signala ni mogoče pridobiti. Preverite, ali je lokacija vključena.',
+            }));
+            return;
+          }
+          updatePosition(position.coords);
+        }
+      );
+      if (generationRef.current !== generation) {
+        void Geolocation.clearWatch({ id });
+      } else {
+        nativeWatchIdRef.current = id;
+      }
+    } catch (error) {
+      if (generationRef.current !== generation) return;
+      setGps((state) => ({
+        ...state,
+        status: 'error',
+        error: error instanceof Error ? error.message : 'GPS ni na voljo. Vključite lokacijo ali uporabite demo vožnjo.',
+      }));
+    }
+  };
+
   const start = () => {
-    if (!('geolocation' in navigator)) {
-      setGps((g) => ({ ...g, status: 'error', error: 'GPS ni podprt v tem brskalniku.' }));
+    clearActiveWatches();
+    setGps((state) => ({ ...state, status: 'searching', error: null, simulated: false }));
+    const generation = generationRef.current;
+
+    if (Capacitor.isNativePlatform()) {
+      void startNative(generation);
       return;
     }
-    stop();
-    setGps((g) => ({ ...g, status: 'searching', error: null, simulated: false }));
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, speed, heading, accuracy, altitude } = pos.coords;
-        setGps({
-          lat: latitude,
-          lng: longitude,
-          speedKmh: speed != null && speed >= 0 ? Math.round(speed * 3.6) : null,
-          heading: heading != null && heading >= 0 ? Math.round(heading) : null,
-          accuracy: Math.round(accuracy),
-          altitude: altitude != null ? Math.round(altitude) : null,
-          status: 'active',
-          error: null,
-          simulated: false,
-        });
-      },
-      (err) => {
-        if (err.code === err.PERMISSION_DENIED) {
-          setGps((g) => ({
-            ...g,
+
+    if (!('geolocation' in navigator)) {
+      setGps((state) => ({ ...state, status: 'error', error: 'GPS ni podprt v tem brskalniku.' }));
+      return;
+    }
+
+    webWatchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => updatePosition(position.coords),
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          setGps((state) => ({
+            ...state,
             status: 'denied',
             error: 'Dostop do lokacije je zavrnjen. Omogočite GPS ali zaženite demo vožnjo.',
           }));
         } else {
-          setGps((g) => ({ ...g, status: 'error', error: err.message || 'GPS napaka.' }));
+          setGps((state) => ({ ...state, status: 'error', error: error.message || 'GPS napaka.' }));
         }
       },
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
     );
   };
+
+  useEffect(() => {
+    return () => {
+      generationRef.current += 1;
+      if (webWatchIdRef.current !== null) navigator.geolocation.clearWatch(webWatchIdRef.current);
+      if (nativeWatchIdRef.current !== null) void Geolocation.clearWatch({ id: nativeWatchIdRef.current });
+      if (simTimerRef.current !== null) window.clearInterval(simTimerRef.current);
+    };
+  }, []);
 
   return { gps, start, stop, startSimulated };
 }

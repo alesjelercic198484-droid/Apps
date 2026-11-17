@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { Camera, Incident, RoadSegment, SavedRoute, Stats, Toast, User, ViewKey } from './lib/types';
 import { api } from './lib/api';
+import { IS_STANDALONE } from './lib/runtime';
 import { useGps, useLiveStream } from './hooks/useLive';
 import { CameraCard, CameraDetailModal, CameraFormModal, CamerasEmpty } from './components/CameraViews';
 import { IncidentCard, IncidentFormModal, IncidentsEmpty } from './components/IncidentViews';
@@ -171,9 +172,10 @@ export default function App() {
     (u: User) => {
       setUser(u);
       void loadRoutes();
+      void loadAll();
       pushToast('success', 'Prijava uspešna', `Dobrodošli, ${u.name}!`);
     },
-    [loadRoutes, pushToast]
+    [loadAll, loadRoutes, pushToast]
   );
 
   const handleLogout = useCallback(async () => {
@@ -184,8 +186,9 @@ export default function App() {
     }
     setUser(null);
     setRoutes([]);
+    void loadAll();
     pushToast('info', 'Odjava uspešna');
-  }, [pushToast]);
+  }, [loadAll, pushToast]);
 
   const handleToggleFavorite = useCallback(
     async (camera: Camera) => {
@@ -229,7 +232,7 @@ export default function App() {
           pushToast('success', 'Poročilo posodobljeno');
         } else {
           const { incident } = await api.createIncident(payload);
-          setIncidents((prev) => [incident, ...prev]);
+          setIncidents((prev) => [incident, ...prev.filter((item) => item.id !== incident.id)]);
           pushToast('success', 'Poročilo objavljeno', 'Hvala! Poročilo je vidno vsem voznikom.');
         }
         setIncidentFormOpen(false);
@@ -280,7 +283,7 @@ export default function App() {
           pushToast('success', 'Kamera posodobljena');
         } else {
           const { camera } = await api.createCamera(payload);
-          setCameras((prev) => [...prev, camera]);
+          setCameras((prev) => [...prev.filter((item) => item.id !== camera.id), camera]);
           pushToast('success', 'Kamera dodana', camera.name);
         }
         setCameraFormOpen(false);
@@ -398,7 +401,7 @@ export default function App() {
         <div className="border-t border-slate-800 px-4 py-4">
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-400">
             <span className={`h-2 w-2 rounded-full ${connected ? 'live-dot bg-emerald-400' : 'bg-slate-500'}`} />
-            {connected ? 'V živo povezano' : 'Povezovanje …'}
+            {IS_STANDALONE ? 'Samostojni način · lokalno' : connected ? 'V živo povezano' : 'Povezovanje …'}
           </div>
           {user ? (
             <div className="space-y-2">
@@ -445,7 +448,7 @@ export default function App() {
             <div className="ml-auto flex items-center gap-2">
               <span className={`hidden items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold sm:inline-flex ${connected ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 text-slate-400'}`}>
                 <span className={`h-2 w-2 rounded-full ${connected ? 'live-dot bg-emerald-400' : 'bg-slate-500'}`} />
-                {connected ? 'V ŽIVO' : 'OFFLINE'}
+                {IS_STANDALONE ? 'LOKALNO' : connected ? 'V ŽIVO' : 'OFFLINE'}
               </span>
               <PrimaryButton
                 onClick={() => {
@@ -680,6 +683,10 @@ export default function App() {
                 });
                 pushToast('success', 'Odsek shranjen');
               }}
+              onDeleted={(id) => {
+                setSegments((prev) => prev.filter((segment) => segment.id !== id));
+                pushToast('success', 'Odsek izbrisan');
+              }}
               onError={(msg) => pushToast('error', 'Napaka', msg)}
               onRequireAuth={() => setAuthOpen(true)}
             />
@@ -698,6 +705,10 @@ export default function App() {
                   return next.sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned));
                 });
                 pushToast('success', 'Pot shranjena');
+              }}
+              onDeleted={(id) => {
+                setRoutes((prev) => prev.filter((route) => route.id !== id));
+                pushToast('success', 'Pot izbrisana');
               }}
               onError={(msg) => pushToast('error', 'Napaka', msg)}
               onRequireAuth={() => setAuthOpen(true)}

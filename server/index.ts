@@ -175,7 +175,7 @@ const INCIDENT_SELECT = `
 
 // ---------- health ----------
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString(), version: '1.0.0' });
+  res.json({ ok: true, ts: new Date().toISOString(), version: '1.1.0' });
 });
 
 // ---------- auth ----------

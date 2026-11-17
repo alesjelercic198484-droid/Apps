@@ -27,6 +27,18 @@ npm run build
 npm start        # streže zgrajen frontend + API na http://localhost:3000
 ```
 
+## Android APK
+
+Android različica uporablja Capacitor in ima **samostojni način**: demo račun, kamere, dogodki, odseki, poti in vse CRUD spremembe se shranjujejo lokalno v telefonu. Za slike kamer in OpenStreetMap je še vedno potrebna internetna povezava, GPS pa uporablja izvorni Android vtičnik.
+
+```bash
+VITE_STANDALONE=true npm run build
+npx cap sync android
+cd android && ./gradlew assembleDebug
+```
+
+GitHub Actions workflow `.github/workflows/build-apk.yml` samodejno preveri tipe in lokalni podatkovni sloj, zgradi, podpiše ter preveri APK. Demo uporabnik je v mobilnem testnem APK-ju ob prvem zagonu že prijavljen; po odjavi se lahko znova prijavite z `demo@slopromet.si` / `demo1234`.
+
 ## Tehnologije
 
 - **Backend:** Node.js + Express + SQLite (`node:sqlite`, WAL), JWT v httpOnly piškotku, bcrypt, Zod validacija, SSE.

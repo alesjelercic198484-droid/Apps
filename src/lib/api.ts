@@ -1,7 +1,11 @@
 import type { Camera, Incident, RoadSegment, SavedRoute, Stats, User } from './types';
 import { apiUrl } from './apiBase';
+import { IS_STANDALONE } from './runtime';
+import { standaloneRequest } from './standaloneApi';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if (IS_STANDALONE) return standaloneRequest<T>(path, options);
+
   const res = await fetch(apiUrl(path), {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },

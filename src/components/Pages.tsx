@@ -26,6 +26,8 @@ import type { Camera, Incident, RoadSegment, SavedRoute, Stats, User, ViewKey } 
 import { FLOW_META, formatDuration, ROUTE_PRESETS, SURFACE_LABEL, timeAgo } from '../lib/format';
 import { api } from '../lib/api';
 import { getApiBase, setApiBase } from '../lib/apiBase';
+import { IS_STANDALONE } from '../lib/runtime';
+import { resetStandaloneData } from '../lib/standaloneApi';
 import { Badge, Card, EmptyState, Field, GhostButton, Modal, PrimaryButton, Spinner, StatCard, inputClass } from './ui';
 import { CameraCard, LiveImage } from './CameraViews';
 import { IncidentCard, IncidentIcon } from './IncidentViews';
@@ -241,12 +243,14 @@ export function SegmentsPage({
   segments,
   user,
   onChanged,
+  onDeleted,
   onError,
   onRequireAuth,
 }: {
   segments: RoadSegment[];
   user: User | null;
   onChanged: (segment: RoadSegment) => void;
+  onDeleted: (id: number) => void;
   onError: (msg: string) => void;
   onRequireAuth: () => void;
 }) {
@@ -345,7 +349,7 @@ export function SegmentsPage({
     if (!window.confirm(`Resnično želite izbrisati odsek ${seg.name}?`)) return;
     try {
       await api.deleteSegment(seg.id);
-      onChanged(seg);
+      onDeleted(seg.id);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Brisanje ni uspelo.');
     }
@@ -503,6 +507,7 @@ export function RoutesPage({
   routes,
   user,
   onChanged,
+  onDeleted,
   onError,
   onRequireAuth,
   onFocusRoute,
@@ -510,6 +515,7 @@ export function RoutesPage({
   routes: SavedRoute[];
   user: User | null;
   onChanged: (route: SavedRoute) => void;
+  onDeleted: (id: number) => void;
   onError: (msg: string) => void;
   onRequireAuth: () => void;
   onFocusRoute: (route: SavedRoute) => void;
@@ -636,7 +642,7 @@ export function RoutesPage({
     if (!window.confirm(`Resnično želite izbrisati pot ${route.name}?`)) return;
     try {
       await api.deleteRoute(route.id);
-      onChanged(route);
+      onDeleted(route.id);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Brisanje ni uspelo.');
     }
@@ -930,29 +936,48 @@ export function SettingsPage({
           </div>
         </form>
       </Card>
-      <Card className="p-5">
-        <h3 className="text-sm font-bold text-slate-100">Strežnik (za mobilno aplikacijo)</h3>
-        <p className="mt-1 text-sm text-slate-400">
-          V mobilni aplikaciji vnesite URL strežnika, kjer teče SloPromet backend (npr. predogledni URL).
-          V brskalniku pustite prazno.
-        </p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input
-            className={inputClass}
-            value={apiBase}
-            onChange={(e) => setApiBaseState(e.target.value)}
-            placeholder="https://3000-xxxx.e2b.app"
-          />
+      {IS_STANDALONE ? (
+        <Card className="border-emerald-500/25 bg-emerald-500/[0.04] p-5">
+          <h3 className="text-sm font-bold text-emerald-300">Samostojni mobilni način</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            Aplikacija, prijava, poti in poročila delujejo lokalno na telefonu. Strežnik ni potreben.
+            Internet je potreben samo za slike prometnih kamer in zemljevid.
+          </p>
           <GhostButton
+            className="mt-4"
             onClick={() => {
-              setApiBase(apiBase);
-              pushSaved();
+              if (!window.confirm('Ponastavim vse lokalne podatke na začetno demo stanje?')) return;
+              resetStandaloneData();
+              window.location.reload();
             }}
           >
-            Shrani URL
+            Ponastavi demo podatke
           </GhostButton>
-        </div>
-      </Card>
+        </Card>
+      ) : (
+        <Card className="p-5">
+          <h3 className="text-sm font-bold text-slate-100">Strežnik (za mobilno aplikacijo)</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            V mobilni aplikaciji vnesite URL strežnika, kjer teče SloPromet backend.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              className={inputClass}
+              value={apiBase}
+              onChange={(e) => setApiBaseState(e.target.value)}
+              placeholder="https://vas-streznik.si"
+            />
+            <GhostButton
+              onClick={() => {
+                setApiBase(apiBase);
+                pushSaved();
+              }}
+            >
+              Shrani URL
+            </GhostButton>
+          </div>
+        </Card>
+      )}
       <Card className="p-5">
         <h3 className="text-sm font-bold text-slate-100">Račun</h3>
         <p className="mt-1 text-sm text-slate-400">
