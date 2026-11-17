@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SloPromet GPS</string>
+    <string name="title_activity_main">SloPromet GPS</string>
+    <string name="package_name">si.slopromet.gps</string>
+    <string name="custom_url_scheme">si.slopromet.gps</string>
+</resources>
