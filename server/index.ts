@@ -33,15 +33,26 @@ app.use(attachUser);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  if (!isProd) {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+
+  // The Capacitor app is served from https://localhost and calls this API.
+  // Allow only that mobile origin in production; development may use any Vite origin.
+  const origin = req.headers.origin;
+  const mobileOrigins = new Set(['https://localhost', 'capacitor://localhost']);
+  const configuredOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const allowOrigin = origin && (!isProd || mobileOrigins.has(origin) || configuredOrigins.includes(origin));
+  if (allowOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(204);
-      return;
-    }
+  }
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(allowOrigin ? 204 : 403);
+    return;
   }
   next();
 });
